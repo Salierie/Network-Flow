@@ -142,7 +142,7 @@ class GeneticAlgorithm:
         utilization = total_flow / total_capacity if total_capacity > 0 else 0
         
         fitness = (sink_flow * 2) - balance_penalty + utilization
-        return max(0, fitness)  
+        return max(0, fitness) 
 
     def display_stats(self):
         """Display current statistics of the genetic algorithm"""
@@ -238,7 +238,7 @@ class GeneticAlgorithm:
         
         self.population.sort(key=lambda x: x.fitness, reverse=True)
         
-        elite_size = int(self.population_size * 0.1)
+        elite_size = int(self.population_size * 0.1)  # Keep top 10%
         new_population.extend(self.population[:elite_size])
         
         while len(new_population) < self.population_size:
@@ -272,12 +272,14 @@ class NetworkFlowGUI:
         self.root = root
         self.root.title("Network Flow Optimization")
         
+        self.root.geometry("1600x900")  
+        
         self.left_frame = ttk.Frame(root, padding="10")
         self.right_frame = ttk.Frame(root, padding="10")
         self.left_frame.grid(row=0, column=0, sticky="nsew")
         self.right_frame.grid(row=0, column=1, sticky="nsew")
         
-        root.grid_columnconfigure(0, weight=2)
+        root.grid_columnconfigure(0, weight=4)  
         root.grid_columnconfigure(1, weight=1)
         root.grid_rowconfigure(0, weight=1)
         
@@ -290,7 +292,7 @@ class NetworkFlowGUI:
             truncation_rate=0.8
         )
         
-        self.pos = nx.spring_layout(self.network.graph, seed=42) 
+        self.pos = nx.spring_layout(self.network.graph, seed=42)  
         
         self.ga.initialize_population()
         
@@ -302,9 +304,19 @@ class NetworkFlowGUI:
         
     def setup_visualization(self):
         """Setup the network visualization"""
-        self.fig = Figure(figsize=(8, 6))
+        self.fig = Figure(figsize=(12, 8))  
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.left_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        self.pos = {
+            'S': np.array([-2, 0]),      
+            'A': np.array([-0.7, 1.2]),  
+            'B': np.array([-0.7, 0]),    
+            'C': np.array([-0.7, -1.2]), 
+            'D': np.array([0.7, 0.8]),   
+            'E': np.array([0.7, -0.8]),  
+            'T': np.array([2, 0])        
+        }
         
         self.update_network_plot()
         
@@ -368,37 +380,79 @@ class NetworkFlowGUI:
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         
-        pos = self.pos
+        node_colors = ['lightgreen' if node == 'S' else 'lightcoral' if node == 'T' 
+                      else 'lightblue' for node in self.network.graph.nodes()]
         
-        nx.draw_networkx_nodes(self.network.graph, pos, node_color='lightblue', 
-                             node_size=500, ax=ax)
-        nx.draw_networkx_labels(self.network.graph, pos, ax=ax)
+        node_size = 2000
+        nx.draw_networkx_nodes(self.network.graph, self.pos, 
+                              node_color=node_colors,
+                              node_size=node_size,
+                              edgecolors='black',
+                              linewidths=2,
+                              ax=ax)
+        
+        nx.draw_networkx_labels(self.network.graph, self.pos, 
+                              font_size=16,
+                              font_weight='bold',
+                              ax=ax)
         
         current_individual = self.current_individual if hasattr(self, 'current_individual') else self.ga.best_solution
         
         if current_individual:
-            active_edges = [(u, v) for u, v, d in current_individual.network.edges(data=True) if d['flow'] > 0]
-            
-            path_colors = plt.cm.Set3(np.linspace(0, 1, len(active_edges)))
-            edge_colors = []
-            edge_widths = []
-            edge_labels = {}
+            node_radius = np.sqrt(node_size / np.pi) / 80 
             
             for u, v, data in current_individual.network.edges(data=True):
-                edge_labels[(u, v)] = f"{data['flow']}/{data['capacity']}"
-                if data['flow'] > 0:
-                    color_idx = active_edges.index((u, v))
-                    edge_colors.append(path_colors[color_idx])
-                    edge_widths.append(2)  
+                edge_color = 'royalblue' if data['flow'] > 0 else 'lightgray'
+                edge_width = 3 if data['flow'] > 0 else 1
+                
+                start_pos = np.array(self.pos[u])
+                end_pos = np.array(self.pos[v])
+                
+                direction = end_pos - start_pos
+                direction_norm = np.linalg.norm(direction)
+                direction = direction / direction_norm
+                
+                start_point = start_pos + direction * node_radius
+                end_point = end_pos - direction * node_radius
+                
+                rad = 0.25
+                if (u, v) in [('A', 'B'), ('B', 'C'), ('D', 'E')]:
+                    rad = 0.4
+                elif (u, v) in [('B', 'D'), ('B', 'E')]:
+                    rad = -0.2
+                
+                connectionstyle = f"arc3,rad={rad}"
+                ax.annotate("",
+                           xy=end_point,
+                           xytext=start_point,
+                           arrowprops=dict(arrowstyle="-|>",  
+                                         color=edge_color,
+                                         lw=edge_width,
+                                         connectionstyle=connectionstyle,
+                                         mutation_scale=20,
+                                         shrinkA=0,  
+                                         shrinkB=0)) 
+                
+                edge_center = start_point * 0.6 + end_point * 0.4
+                if rad > 0:
+                    edge_center[1] += 0.15
                 else:
-                    edge_colors.append('lightgray')
-                    edge_widths.append(0.5)  
-            
-            nx.draw_networkx_edges(self.network.graph, pos, ax=ax, 
-                                 edge_color=edge_colors,
-                                 width=edge_widths)
-            
-            nx.draw_networkx_edge_labels(self.network.graph, pos, edge_labels, ax=ax)
+                    edge_center[1] -= 0.15
+                
+                edge_label = f"{data['flow']}/{data['capacity']}"
+                ax.annotate(edge_label,
+                           xy=edge_center,
+                           xytext=(0, 0),
+                           textcoords='offset points',
+                           ha='center',
+                           va='center',
+                           bbox=dict(boxstyle='round4,pad=0.6', 
+                                     fc='white',
+                                     ec='gray',
+                                     alpha=0.9,
+                                     mutation_aspect=0.5),  
+                           fontsize=12,  
+                           fontweight='bold')  
         
         title = [f"Generation {self.ga.generation + 1}"]
         if hasattr(self, 'current_entity_index'):
@@ -412,8 +466,13 @@ class NetworkFlowGUI:
                            for u in self.ga.best_solution.network.predecessors('T'))
             title.append(f"Best Flow Ever: {best_flow}")
         
-        ax.set_title('\n'.join(title))
+        ax.set_title('\n'.join(title), pad=20, fontsize=14)
+        
+        ax.set_aspect('equal')
         ax.axis('off')
+        
+        ax.margins(0.25)
+        
         self.canvas.draw()
         
     def update_stats(self):
