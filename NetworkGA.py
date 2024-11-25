@@ -103,6 +103,9 @@ class Individual:
         energy = k * excess_flow + abs(max_possible - actual_flow)
         return energy
 
+def individual_fitness_key(individual):
+    return individual.fitness
+
 class GeneticAlgorithm:
     def __init__(self, network: LogisticsNetwork, population_size: int = 50,
                  mutation_rate: float = 0.02, balancing_factor: float = 1.4,
@@ -127,7 +130,7 @@ class GeneticAlgorithm:
         for individual in self.population:
             individual.fitness = self.calculate_fitness(individual)
             
-        self.best_solution = max(self.population, key=lambda x: x.fitness)
+        self.best_solution = max(self.population, key=individual_fitness_key)
 
     def calculate_fitness(self, individual: Individual) -> float:
         """Calculate fitness for an individual"""
@@ -194,7 +197,7 @@ class GeneticAlgorithm:
         """Select parent using tournament selection"""
         tournament_size = min(3, len(self.population))  
         tournament = random.sample(self.population, tournament_size)
-        return max(tournament, key=lambda x: x.fitness)
+        return max(tournament, key=individual_fitness_key)
         
     def crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """Create child solution using vertex-based crossover"""
@@ -236,7 +239,7 @@ class GeneticAlgorithm:
         """Perform one generation of evolution"""
         new_population = []
         
-        self.population.sort(key=lambda x: x.fitness, reverse=True)
+        self.population.sort(key=individual_fitness_key, reverse=True)
         
         elite_size = int(self.population_size * 0.1)  # Keep top 10%
         new_population.extend(self.population[:elite_size])
@@ -255,7 +258,7 @@ class GeneticAlgorithm:
             
         self.population = new_population
         
-        current_best = max(self.population, key=lambda x: x.fitness)
+        current_best = max(self.population, key=individual_fitness_key)
         if not self.best_solution or current_best.fitness > self.best_solution.fitness:
             self.best_solution = Individual(self.network.graph)
             for u, v, data in current_best.network.edges(data=True):
