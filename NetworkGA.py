@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
-class LogisticsNetwork:
+class TrafficNetwork:
     def __init__(self):
         self.graph = nx.DiGraph()
         self.setup_network()
@@ -44,7 +44,7 @@ class LogisticsNetwork:
         nx.draw_networkx_edges(self.graph, pos)
         nx.draw_networkx_edge_labels(self.graph, pos, edge_labels)
         
-        plt.title("Logistics Network Flow")
+        plt.title("Traffic Network Flow")
         plt.axis('off')
         plt.show()
 
@@ -107,7 +107,7 @@ def individual_fitness_key(individual):
     return individual.fitness
 
 class GeneticAlgorithm:
-    def __init__(self, network: LogisticsNetwork, population_size: int = 50,
+    def __init__(self, network: TrafficNetwork, population_size: int = 50,
                  mutation_rate: float = 0.02, balancing_factor: float = 1.4,
                  truncation_rate: float = 0.8):
         self.network = network
@@ -270,6 +270,118 @@ class GeneticAlgorithm:
                        for u in current_best.network.predecessors('T'))
         self.history['max_flow'].append(sink_flow)
 
+class NetworkAnalyzer:
+    def __init__(self, ga_instance):
+        self.ga = ga_instance
+        self.convergence_data = []
+        self.efficiency_data = {}
+        self.node_balance_data = {}
+        
+    def analyze_convergence(self):
+        """Phân tích khả năng hội tụ của thuật toán"""
+        generations = len(self.ga.history['fitness'])
+        
+        # Tính tốc độ hội tụ
+        max_fitness = max(self.ga.history['fitness'])
+        convergence_gen = 0
+        threshold = 0.95 * max_fitness
+        
+        for gen, fitness in enumerate(self.ga.history['fitness']):
+            if fitness >= threshold:
+                convergence_gen = gen
+                break
+                
+        # Tính độ ổn định
+        last_20_gen = self.ga.history['fitness'][-20:]
+        stability = np.std(last_20_gen)
+        
+        self.convergence_data = {
+            'generations_to_converge': convergence_gen,
+            'max_fitness': max_fitness,
+            'stability': stability
+        }
+        
+    def analyze_efficiency(self):
+        """Phân tích hiệu quả của giải pháp"""
+        if not self.ga.best_solution:
+            return
+            
+        # Tính tổng luồng đến đích
+        total_sink_flow = sum(self.ga.best_solution.network[u]['T']['flow'] 
+                            for u in self.ga.best_solution.network.predecessors('T'))
+                            
+        # Tính tổng công suất có thể
+        total_capacity = sum(data['capacity'] 
+                           for _, _, data in self.ga.best_solution.network.edges(data=True))
+                           
+        # Tính hiệu suất sử dụng
+        utilization = sum(data['flow'] for _, _, data in self.ga.best_solution.network.edges(data=True)) / total_capacity
+        
+        self.efficiency_data = {
+            'total_flow': total_sink_flow,
+            'total_capacity': total_capacity,
+            'utilization': utilization
+        }
+        
+    def analyze_node_balance(self):
+        """Phân tích cân bằng tại các nút"""
+        if not self.ga.best_solution:
+            return
+            
+        for node in self.ga.best_solution.network.nodes():
+            if node not in ['S', 'T']:
+                energy = self.ga.best_solution.calculate_vertex_energy(node)
+                self.node_balance_data[node] = energy
+                
+    def plot_convergence_curve(self):
+        """Vẽ đường cong hội tụ"""
+        plt.figure(figsize=(12, 6))
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(self.ga.history['fitness'], label='Fitness')
+        plt.axhline(y=self.convergence_data['max_fitness'] * 0.95, 
+                   color='r', linestyle='--', label='95% of max fitness')
+        plt.axvline(x=self.convergence_data['generations_to_converge'], 
+                   color='g', linestyle='--', label='Convergence point')
+        plt.title('Đường cong hội tụ')
+        plt.xlabel('Thế hệ')
+        plt.ylabel('Fitness')
+        plt.legend()
+        
+        plt.subplot(1, 2, 2)
+        plt.plot(self.ga.history['max_flow'], label='Max Flow')
+        plt.title('Luồng cực đại theo thế hệ')
+        plt.xlabel('Thế hệ')
+        plt.ylabel('Luồng')
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.show()
+        
+    def generate_report(self):
+        """Tạo báo cáo phân tích"""
+        self.analyze_convergence()
+        self.analyze_efficiency()
+        self.analyze_node_balance()
+        
+        print("=== BÁO CÁO PHÂN TÍCH ===\n")
+        
+        print("1. Khả năng hội tụ:")
+        print(f"- Số thế hệ để hội tụ: {self.convergence_data['generations_to_converge']}")
+        print(f"- Độ ổn định (std): {self.convergence_data['stability']:.2f}")
+        print(f"- Fitness tốt nhất: {self.convergence_data['max_fitness']:.2f}\n")
+        
+        print("2. Hiệu quả giải pháp:")
+        print(f"- Tổng luồng đạt được: {self.efficiency_data['total_flow']}")
+        print(f"- Tổng công suất: {self.efficiency_data['total_capacity']}")
+        print(f"- Hiệu suất sử dụng: {self.efficiency_data['utilization']*100:.1f}%\n")
+        
+        print("3. Cân bằng tại các nút:")
+        for node, energy in self.node_balance_data.items():
+            print(f"- Nút {node}: {energy:.2f}")
+            
+        self.plot_convergence_curve()
+
 class NetworkFlowGUI:
     def __init__(self, root):
         self.root = root
@@ -286,7 +398,7 @@ class NetworkFlowGUI:
         root.grid_columnconfigure(1, weight=1)
         root.grid_rowconfigure(0, weight=1)
         
-        self.network = LogisticsNetwork()
+        self.network = TrafficNetwork()
         self.ga = GeneticAlgorithm(
             network=self.network,
             population_size=50,
@@ -513,6 +625,11 @@ class NetworkFlowGUI:
             
             if self.ga.generation >= max_generations - 1:
                 self.start_button["text"] = "Start"
+                
+                # Thêm phân tích sau khi mô phỏng hoàn thành
+                analyzer = NetworkAnalyzer(self.ga)
+                analyzer.generate_report()
+                
                 best_flow = sum(self.ga.best_solution.network[u]['T']['flow'] 
                            for u in self.ga.best_solution.network.predecessors('T'))
                 tk.messagebox.showinfo("Simulation Complete", 
