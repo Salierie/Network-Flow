@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
 class TrafficNetwork:
+    '''Khởi tạo đồ thị mạng giao thông'''
     def __init__(self):
         self.graph = nx.DiGraph()
         self.setup_network()
@@ -27,43 +28,14 @@ class TrafficNetwork:
         for source, target, capacity in edges_with_capacity:
             self.graph.add_edge(source, target, capacity=capacity, flow=0)
 
-    def visualize_network(self, flows=None):
-        """Visualize the network with current flows and capacities"""
-        plt.figure(figsize=(12, 8))
-        pos = nx.spring_layout(self.graph)
-        
-        nx.draw_networkx_nodes(self.graph, pos, node_color='lightblue', 
-                             node_size=500)
-        nx.draw_networkx_labels(self.graph, pos)
-        
-        edge_labels = {}
-        for u, v, data in self.graph.edges(data=True):
-            flow = data['flow'] if flows is None else flows.get((u, v), 0)
-            edge_labels[(u, v)] = f"{flow}/{data['capacity']}"
-        
-        nx.draw_networkx_edges(self.graph, pos)
-        nx.draw_networkx_edge_labels(self.graph, pos, edge_labels)
-        
-        plt.title("Traffic Network Flow")
-        plt.axis('off')
-        plt.show()
-
 class Individual:
     def __init__(self, network: nx.DiGraph):
         self.network = network.copy()
         self.fitness = 0
-        if hasattr(network, 'initial_zero') and network.initial_zero:
-            self.initialize_zero_flow()
-        else:
-            self.initialize_random_flow()
-            
-    def initialize_zero_flow(self):
-        """Initialize all edges with zero flow"""
-        for _, _, data in self.network.edges(data=True):
-            data['flow'] = 0
+        self.initialize_random_flow()
             
     def initialize_random_flow(self):
-        """Initialize random valid flows for all edges"""
+        """Khởi tạo giá trị luồng ngẫu nhiên hợp lệ cho tất cả các cạnh đồ thị sử dụng dfs"""
         def dfs_random_flow(node):
             if node == 'T':
                 return
@@ -79,37 +51,45 @@ class Individual:
                     dfs_random_flow(next_node)
                     
         dfs_random_flow('S')
-        
+
+    '''Hàm tính toán năng lượng của mỗi đỉnh được tính bằng công thức: 
+
+        Năng lượng đỉnh = tham số cân bằng x |Tổng luồng vào - Tổng luồng ra|
+    '''    
     def calculate_vertex_energy(self, vertex: str) -> float:
         if vertex in ['S', 'T']:  
             return 0
             
-        incoming_flow = sum(self.network[u][vertex]['flow'] 
-                          for u in self.network.predecessors(vertex))
-        outgoing_flow = sum(self.network[vertex][v]['flow'] 
-                          for v in self.network.successors(vertex))
+        incoming_flow = sum(self.network[u][vertex]['flow'] #Tổng luồng vào
+            for u in self.network.predecessors(vertex))
+        
+        outgoing_flow = sum(self.network[vertex][v]['flow'] #Tổng luồng ra
+            for v in self.network.successors(vertex))
         
         excess_flow = abs(incoming_flow - outgoing_flow)
         
-        max_incoming = sum(self.network[u][vertex]['capacity'] 
-                         for u in self.network.predecessors(vertex))
+        max_incoming = sum(self.network[u][vertex]['capacity'] #Tổng công suất vào tối đa (hay tổng luồng vào tối đa)
+                         for u in self.network.predecessors(vertex)) #Tổng công suất ra tối đa (hay tổng luồng ra tối đa)
         max_outgoing = sum(self.network[vertex][v]['capacity'] 
-                         for v in self.network.successors(vertex))
+                         for v in self.network.successors(vertex)) #Công suất tối đa mà đỉnh có thể xử lý được (tức là 1 đỉnh không thể thu về hay giải phóng đi)
         max_possible = min(max_incoming, max_outgoing)
         
-        actual_flow = min(incoming_flow, outgoing_flow)
+        actual_flow = min(incoming_flow, outgoing_flow) #Luồng thực tế tại đỉnh đang xử lý
         
-        k = 1.4
+        k = 1.4 # tham số cân bằng 
         energy = k * excess_flow + abs(max_possible - actual_flow)
         return energy
 
-def individual_fitness_key(individual):
+def individual_fitness_key(individual): #Hàm này được dùng để lấy giá trị fitness của cá thể
     return individual.fitness
 
 class GeneticAlgorithm:
-    def __init__(self, network: TrafficNetwork, population_size: int = 50,
-                 mutation_rate: float = 0.02, balancing_factor: float = 1.4,
+    def __init__(self, network: TrafficNetwork, 
+                 population_size: int = 50,
+                 mutation_rate: float = 0.02, 
+                 balancing_factor: float = 1.4,
                  truncation_rate: float = 0.8):
+        
         self.network = network
         self.population_size = population_size
         self.population = []
@@ -121,7 +101,7 @@ class GeneticAlgorithm:
         self.best_solution = None
         
     def initialize_population(self):
-        """Initialize the population with random individuals"""
+        """Khởi tạo một quần thể thế hệ với các cá thể (mạng giao thông) ngẫu nhiên"""
         self.population = [
             Individual(self.network.graph) 
             for _ in range(self.population_size - 1)
@@ -133,74 +113,40 @@ class GeneticAlgorithm:
         self.best_solution = max(self.population, key=individual_fitness_key)
 
     def calculate_fitness(self, individual: Individual) -> float:
-        """Calculate fitness for an individual"""
-        sink_flow = sum(individual.network[u]['T']['flow'] 
-                       for u in individual.network.predecessors('T'))
+        """Tính toán giá trị fitness của từng cá thể theo công thức:
+        fitness = (2 x Luồng vào đỉnh thu T) - Tổng năng lượng + (Tổng luồng / Tổng công suất)
+            - Tổng năng lượng: Tổng năng lượng của mọi đỉnh trong cá thế (mạng giao thông) đó
+            - Tổng luồng: Tổng giá trị luồng chạy trên cá thể (mạng giao thông) đó
+            - Tổng công suất: Tổng công suất của cá thể (mạng giao thông) đó
+        """
+        sink_flow = sum(individual.network[u]['T']['flow'] #Luồng vào T
+            for u in individual.network.predecessors('T'))
         
-        balance_penalty = sum(individual.calculate_vertex_energy(v) 
-                            for v in individual.network.nodes())
+        balance_penalty = sum(individual.calculate_vertex_energy(v) #Tổng năng lượng
+            for v in individual.network.nodes())
         
-        total_flow = sum(data['flow'] for _, _, data in individual.network.edges(data=True))
-        total_capacity = sum(data['capacity'] for _, _, data in individual.network.edges(data=True))
+        total_flow = sum(data['flow'] #Tổng luồng
+            for _, _, data in individual.network.edges(data=True))
+        
+        total_capacity = sum(data['capacity'] #Tổng công suất
+            for _, _, data in individual.network.edges(data=True))
+        
         utilization = total_flow / total_capacity if total_capacity > 0 else 0
         
-        fitness = (sink_flow * 2) - balance_penalty + utilization
+        fitness = (sink_flow * 2) - balance_penalty + utilization # Fitness
+
         return max(0, fitness) 
 
-    def display_stats(self):
-        """Display current statistics of the genetic algorithm"""
-        clear_output(wait=True)
-        
-        print(f"Generation: {self.generation}")
-        print(f"Population Size: {self.population_size}")
-        print(f"Mutation Rate: {self.mutation_rate}")
-        print(f"Balancing Factor: {self.balancing_factor}")
-        print(f"Truncation Rate: {self.truncation_rate}")
-        
-        if self.best_solution:
-            print("\nBest Solution Stats:")
-            print(f"Fitness: {self.best_solution.fitness:.2f}")
-            
-            sink_flow = sum(self.best_solution.network[u]['T']['flow'] 
-                          for u in self.best_solution.network.predecessors('T'))
-            print(f"Total Flow to Sink: {sink_flow}")
-            
-            print("\nVertex Energy Levels:")
-            for vertex in self.best_solution.network.nodes():
-                if vertex not in ['S', 'T']:
-                    energy = self.best_solution.calculate_vertex_energy(vertex)
-                    print(f"Node {vertex}: {energy:.2f}")
-        
-        if len(self.history['fitness']) > 0:
-            plt.figure(figsize=(10, 4))
-            plt.subplot(1, 2, 1)
-            plt.plot(self.history['fitness'])
-            plt.title('Best Fitness Over Generations')
-            plt.xlabel('Generation')
-            plt.ylabel('Fitness')
-            
-            plt.subplot(1, 2, 2)
-            plt.plot(self.history['max_flow'])
-            plt.title('Maximum Flow Over Generations')
-            plt.xlabel('Generation')
-            plt.ylabel('Flow')
-            plt.tight_layout()
-            plt.show()
-            
-        if self.best_solution:
-            self.network.visualize_network(
-                {(u, v): d['flow'] 
-                 for u, v, d in self.best_solution.network.edges(data=True)}
-            )
+
 
     def select_parent(self):
-        """Select parent using tournament selection"""
+        """Chọn lựa cặp bố mẹ sử dụng phương pháp tournament selection"""
         tournament_size = min(3, len(self.population))  
         tournament = random.sample(self.population, tournament_size)
         return max(tournament, key=individual_fitness_key)
         
     def crossover(self, parent1: Individual, parent2: Individual) -> Individual:
-        """Create child solution using vertex-based crossover"""
+        """Tạo ra cá thể con bằng cách ghép từng cặp đỉnh tương ứng của cá thể bố mẹ"""
         child = Individual(self.network.graph)
         
         for vertex in child.network.nodes():
@@ -225,7 +171,7 @@ class GeneticAlgorithm:
         return child
         
     def mutate(self, individual: Individual):
-        """Apply mutation to individual"""
+        """Đột biến cá thể"""
         for u, v, data in individual.network.edges(data=True):
             if random.random() < self.mutation_rate:
                 if data['capacity'] > 0:
@@ -236,13 +182,14 @@ class GeneticAlgorithm:
                                          data['flow'] + random.randint(1, 3))
                     
     def evolve_population(self):
-        """Perform one generation of evolution"""
+        """Tiến hóa quần thể thế hệ nhất định"""
         new_population = []
         
         self.population.sort(key=individual_fitness_key, reverse=True)
         
-        elite_size = int(self.population_size * 0.1)  # Keep top 10%
-        new_population.extend(self.population[:elite_size])
+        elite_size = int(self.population_size * 0.1)  # Chọn lọc các cá thể trong thế hệ đó và chỉ giữ lại 10% số cá thể dựa trên chỉ số fitness
+        new_population.extend(self.population[:elite_size]) 
+        #Để đảm bảo đủ số lượng cá thể, chương trình sẽ chọn và lai ghép để sinh ra thêm cá thể
         
         while len(new_population) < self.population_size:
             parent1 = self.select_parent()
@@ -279,8 +226,6 @@ class NetworkAnalyzer:
         
     def analyze_convergence(self):
         """Phân tích khả năng hội tụ của thuật toán"""
-        generations = len(self.ga.history['fitness'])
-        
         # Tính tốc độ hội tụ
         max_fitness = max(self.ga.history['fitness'])
         convergence_gen = 0
